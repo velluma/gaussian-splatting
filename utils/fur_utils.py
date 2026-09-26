@@ -53,6 +53,7 @@ class FurGuide:
         self.beta = opt.fur_beta
         self.decay = opt.fur_decay
         self.orient = opt.fur_orient_split
+        self.orient_clone = opt.fur_orient_clone
         self.aspect = opt.fur_orient_aspect
         self.min_conf = opt.fur_orient_min_conf
         self.min_interior = opt.fur_orient_min_interior
@@ -68,12 +69,14 @@ class FurGuide:
             self.maps[cam.image_name] = torch.stack(chans).cuda()      # (4,H,W) uint8
         self.n_oriented = 0
         self.n_split_candidates = 0
+        self.n_oriented_clones = 0
+        self.n_clone_candidates = 0
         print(f"[fur] maps from {map_dir} for {len(self.maps)} train views; mode={self.mode} beta={self.beta} "
-              f"decay={self.decay} orient_split={self.orient}")
+              f"decay={self.decay} orient_split={self.orient} orient_clone={self.orient_clone}")
 
     def attach(self, gaussians):
         gaussians.fur_stats = torch.zeros((gaussians.get_xyz.shape[0], STATS_DIM), device="cuda")
-        gaussians.fur_guide = self if self.orient else None
+        gaussians.fur_guide = self if (self.orient or self.orient_clone) else None
 
     @torch.no_grad()
     def accumulate(self, gaussians, cam, visibility_filter):
@@ -99,7 +102,7 @@ class FurGuide:
         st[idx, 0] += v[0]
         st[idx, 1] += v[1]
         st[idx, 2] += 1
-        if not self.orient:
+        if not (self.orient or self.orient_clone):
             return
         theta = v[2] * math.pi
         wgt = v[1] * v[3]                              # interior fur score x coherence
@@ -157,9 +160,54 @@ class FurGuide:
         return t, conf, along_ray
 
     @torch.no_grad()
+    def _frames(self, gaussians, selected):
+        """For the selected Gaussians: mask of confident fur-interior ones, their strand dir t, the child
+        rotation (quaternion, first axis = t) and the parent scales sorted descending."""
+        stats = gaussians.fur_stats[selected]
+        cnt = stats[:, 2].clamp(min=1e-6)
+        interior = stats[:, 1] / cnt
+        t, conf, along_ray = self.strand_dirs(stats)
+        use = (interior >= self.min_interior) & (conf >= self.min_conf) & (along_ray < 0.7) & (stats[:, 9] > 0)
+        if not bool(use.any()):
+            return use, None, None, None
+        s = gaussians.get_scaling[selected][use]
+        from utils.general_utils import build_rotation
+        Rp = build_rotation(gaussians.get_rotation[selected][use])
+        tu = t[use]
+        dots = (Rp * tu[:, :, None]).sum(1).abs()
+        j = dots.argmin(1)
+        a = Rp[torch.arange(len(j)), :, j]
+        u = a - (a * tu).sum(1, keepdim=True) * tu
+        u = u / u.norm(dim=1, keepdim=True).clamp(min=1e-8)
+        wv = torch.cross(tu, u, dim=1)
+        q = quat_from_matrix(torch.stack([tu, u, wv], 2))
+        return use, tu, q, torch.sort(s, dim=1, descending=True).values
+
+    @torch.no_grad()
+    def oriented_clone(self, gaussians, selected, new_xyz, new_scaling_raw, new_rotation):
+        """Clone of a confident fur-interior Gaussian: rotated so its long axis follows the strand, thinned
+        across it (aspect), and shifted by half its length along the strand (the parent stays)."""
+        self.n_clone_candidates += int(selected.sum())
+        use, tu, q, ss = self._frames(gaussians, selected)
+        if tu is None:
+            return new_xyz, new_scaling_raw, new_rotation
+        self.n_oriented_clones += int(use.sum())
+        s_long = ss[:, 0]
+        s_across = torch.minimum(ss[:, 1], s_long * self.aspect)
+        s_thin = torch.minimum(ss[:, 2], s_across)
+        sign = torch.where(torch.rand_like(s_long) < 0.5, -1.0, 1.0)
+        new_xyz, new_scaling_raw, new_rotation = new_xyz.clone(), new_scaling_raw.clone(), new_rotation.clone()
+        new_xyz[use] = new_xyz[use] + tu * (0.5 * sign * s_long)[:, None]
+        new_scaling_raw[use] = gaussians.scaling_inverse_activation(torch.stack([s_long, s_across, s_thin], 1))
+        new_rotation[use] = q
+        return new_xyz, new_scaling_raw, new_rotation
+
+    @torch.no_grad()
     def oriented_split(self, gaussians, selected, N, new_xyz, new_scaling, new_rotation):
         """Replace the default children of confident fur-interior Gaussians by children stretched along the strand.
         new_* are the default children (N stacked copies of the selected set, activated scaling)."""
+        if not self.orient:
+            return new_xyz, new_scaling, new_rotation
         stats = gaussians.fur_stats[selected]
         n_sel = stats.shape[0]
         self.n_split_candidates += n_sel

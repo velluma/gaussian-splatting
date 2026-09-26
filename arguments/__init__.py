@@ -104,6 +104,7 @@ class OptimizationParams(ParamGroup):
         self.fur_beta = 1.0                 # grad multiplier = 1 + beta * fur score
         self.fur_decay = 0.8                # forgetting factor of fur statistics per densification step
         self.fur_orient_split = False       # split fur-interior Gaussians along the 3D strand direction
+        self.fur_orient_clone = False       # also orient clones of fur-interior Gaussians along the strand
         self.fur_orient_aspect = 0.5        # across-strand / along-strand scale ratio (upper bound) of children
         self.fur_orient_min_conf = 0.5      # min direction confidence (1 - l0/l1)
         self.fur_orient_min_interior = 0.3  # min mean interior fur score

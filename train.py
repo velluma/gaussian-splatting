@@ -55,8 +55,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         from utils.fur_utils import FurGuide
         fur = FurGuide(opt, dataset, scene.getTrainCameras())
         fur.attach(gaussians)
-    elif opt.fur_orient_split:
-        sys.exit("--fur_orient_split requires --fur_densify")
+    elif opt.fur_orient_split or opt.fur_orient_clone:
+        sys.exit("--fur_orient_split / --fur_orient_clone require --fur_densify")
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
         gaussians.restore(model_params, opt)
@@ -81,7 +81,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         if fur is not None and iteration == opt.densify_until_iter:
             fr, it = fur.scores(gaussians)
             print(f"\n[fur] densification done: {gaussians.get_xyz.shape[0]} Gaussians, mean fringe score {fr.mean():.3f}, "
-                  f"mean interior score {it.mean():.3f}, oriented splits {fur.n_oriented} / split candidates {fur.n_split_candidates}")
+                  f"mean interior score {it.mean():.3f}, oriented splits {fur.n_oriented} / split candidates {fur.n_split_candidates}, "
+                  f"oriented clones {fur.n_oriented_clones} / clone candidates {fur.n_clone_candidates}")
         if network_gui.conn == None:
             network_gui.try_connect()
         while network_gui.conn != None:

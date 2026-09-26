@@ -462,6 +462,8 @@ class GaussianModel:
 
         new_tmp_radii = self.tmp_radii[selected_pts_mask]
         new_fur_stats = self.fur_stats[selected_pts_mask] if self.fur_stats is not None else None
+        if self.fur_guide is not None and self.fur_guide.orient_clone:
+            new_xyz, new_scaling, new_rotation = self.fur_guide.oriented_clone(self, selected_pts_mask, new_xyz, new_scaling, new_rotation)
 
         self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_tmp_radii, new_fur_stats)
 
