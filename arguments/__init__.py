@@ -97,6 +97,16 @@ class OptimizationParams(ParamGroup):
         self.depth_l1_weight_final = 0.01
         self.random_background = False
         self.optimizer_type = "default"
+        # fur-gs (D14, D15). All off by default -> vanilla 3DGS
+        self.fur_densify = False            # lower the densify threshold on fur Gaussians (tools/fur_detect maps)
+        self.fur_maps = ""                  # default: <source_path>/fur_maps
+        self.fur_mode = "both"              # both | fringe | interior : which fur component drives densification
+        self.fur_beta = 1.0                 # grad multiplier = 1 + beta * fur score
+        self.fur_decay = 0.8                # forgetting factor of fur statistics per densification step
+        self.fur_orient_split = False       # split fur-interior Gaussians along the 3D strand direction
+        self.fur_orient_aspect = 0.5        # across-strand / along-strand scale ratio (upper bound) of children
+        self.fur_orient_min_conf = 0.5      # min direction confidence (1 - l0/l1)
+        self.fur_orient_min_interior = 0.3  # min mean interior fur score
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):

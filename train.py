@@ -50,6 +50,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     gaussians = GaussianModel(dataset.sh_degree, opt.optimizer_type)
     scene = Scene(dataset, gaussians)
     gaussians.training_setup(opt)
+    fur = None
+    if opt.fur_densify:
+        from utils.fur_utils import FurGuide
+        fur = FurGuide(opt, dataset, scene.getTrainCameras())
+        fur.attach(gaussians)
+    elif opt.fur_orient_split:
+        sys.exit("--fur_orient_split requires --fur_densify")
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
         gaussians.restore(model_params, opt)
@@ -71,6 +78,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
     for iteration in range(first_iter, opt.iterations + 1):
+        if fur is not None and iteration == opt.densify_until_iter:
+            fr, it = fur.scores(gaussians)
+            print(f"\n[fur] densification done: {gaussians.get_xyz.shape[0]} Gaussians, mean fringe score {fr.mean():.3f}, "
+                  f"mean interior score {it.mean():.3f}, oriented splits {fur.n_oriented} / split candidates {fur.n_split_candidates}")
         if network_gui.conn == None:
             network_gui.try_connect()
         while network_gui.conn != None:
@@ -165,10 +176,17 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 # Keep track of max radii in image-space for pruning
                 gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
                 gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
+                if fur is not None:
+                    fur.accumulate(gaussians, viewpoint_cam, visibility_filter)
 
                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
-                    gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold, radii)
+                    if fur is None:
+                        gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold, radii)
+                    else:
+                        gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold, radii,
+                                                    grad_scale=fur.grad_scale(gaussians))
+                        fur.after_densify(gaussians)
                 
                 if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
                     gaussians.reset_opacity()

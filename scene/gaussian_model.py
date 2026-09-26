@@ -63,6 +63,9 @@ class GaussianModel:
         self.optimizer = None
         self.percent_dense = 0
         self.spatial_lr_scale = 0
+        # fur-gs (--fur_densify): per-Gaussian fur statistics and the oriented-split helper. None = vanilla 3DGS
+        self.fur_stats = None
+        self.fur_guide = None
         self.setup_functions()
 
     def capture(self):
@@ -362,6 +365,8 @@ class GaussianModel:
         self.denom = self.denom[valid_points_mask]
         self.max_radii2D = self.max_radii2D[valid_points_mask]
         self.tmp_radii = self.tmp_radii[valid_points_mask]
+        if self.fur_stats is not None:
+            self.fur_stats = self.fur_stats[valid_points_mask]
 
     def cat_tensors_to_optimizer(self, tensors_dict):
         optimizable_tensors = {}
@@ -385,7 +390,9 @@ class GaussianModel:
 
         return optimizable_tensors
 
-    def densification_postfix(self, new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_tmp_radii):
+    def densification_postfix(self, new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_tmp_radii, new_fur_stats=None):
+        if self.fur_stats is not None:
+            self.fur_stats = torch.cat((self.fur_stats, new_fur_stats))
         d = {"xyz": new_xyz,
         "f_dc": new_features_dc,
         "f_rest": new_features_rest,
@@ -427,7 +434,15 @@ class GaussianModel:
         new_opacity = self._opacity[selected_pts_mask].repeat(N,1)
         new_tmp_radii = self.tmp_radii[selected_pts_mask].repeat(N)
 
-        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_tmp_radii)
+        new_fur_stats = None
+        if self.fur_stats is not None:
+            new_fur_stats = self.fur_stats[selected_pts_mask].repeat(N, 1)
+            if self.fur_guide is not None:
+                new_xyz, act_scaling, new_rotation = self.fur_guide.oriented_split(
+                    self, selected_pts_mask, N, new_xyz, self.scaling_activation(new_scaling), new_rotation)
+                new_scaling = self.scaling_inverse_activation(act_scaling)
+
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_tmp_radii, new_fur_stats)
 
         prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
         self.prune_points(prune_filter)
@@ -446,12 +461,16 @@ class GaussianModel:
         new_rotation = self._rotation[selected_pts_mask]
 
         new_tmp_radii = self.tmp_radii[selected_pts_mask]
+        new_fur_stats = self.fur_stats[selected_pts_mask] if self.fur_stats is not None else None
 
-        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_tmp_radii)
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_tmp_radii, new_fur_stats)
 
-    def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size, radii):
+    def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size, radii, grad_scale=None):
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
+        if grad_scale is not None:
+            # fur-gs: fur Gaussians see a lower effective threshold (max_grad / grad_scale)
+            grads = grads * grad_scale
 
         self.tmp_radii = radii
         self.densify_and_clone(grads, max_grad, extent)
