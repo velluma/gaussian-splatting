@@ -61,6 +61,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     if opt.tex_loss:
         from utils.tex_loss import TexLoss
         tex = TexLoss(opt, dataset, scene.getTrainCameras())
+    pseudo = None
+    if opt.pseudo_dir:
+        from utils.pseudo_views import PseudoViews
+        pseudo = PseudoViews(opt)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint, weights_only=False)  # fur-gs: PyTorch>=2.6 default is weights_only=True; our own local checkpoint
         gaussians.restore(model_params, opt)
@@ -110,13 +114,17 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         if iteration % 1000 == 0:
             gaussians.oneupSHdegree()
 
-        # Pick a random Camera
-        if not viewpoint_stack:
-            viewpoint_stack = scene.getTrainCameras().copy()
-            viewpoint_indices = list(range(len(viewpoint_stack)))
-        rand_idx = randint(0, len(viewpoint_indices) - 1)
-        viewpoint_cam = viewpoint_stack.pop(rand_idx)
-        vind = viewpoint_indices.pop(rand_idx)
+        # Pick a random Camera (fur-gs B1: sometimes a Difix-fixed pseudo view instead)
+        pcam = pseudo.pick() if pseudo is not None else None
+        if pcam is not None:
+            viewpoint_cam = pcam
+        else:
+            if not viewpoint_stack:
+                viewpoint_stack = scene.getTrainCameras().copy()
+                viewpoint_indices = list(range(len(viewpoint_stack)))
+            rand_idx = randint(0, len(viewpoint_indices) - 1)
+            viewpoint_cam = viewpoint_stack.pop(rand_idx)
+            vind = viewpoint_indices.pop(rand_idx)
 
         # Render
         if (iteration - 1) == debug_from:
@@ -140,6 +148,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             ssim_value = ssim(image, gt_image)
 
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
+        if pcam is not None:
+            loss = loss * pseudo.weight
 
         # Depth regularization
         Ll1depth_pure = 0.0

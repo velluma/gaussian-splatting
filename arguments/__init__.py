@@ -122,6 +122,10 @@ class OptimizationParams(ParamGroup):
         self.tex_floor = 0.1                # bounds the penalty for missing power to log(1 + 1/floor)
         self.tex_from_iter = 1000
         self.tex_densify = False            # let the texture gradient also drive densification (off: pixel loss only)
+        # fur-gs (D25, method B1). Off by default -> vanilla 3DGS
+        self.pseudo_dir = ""                # folder with pseudo_views.json + Difix-fixed pseudo targets
+        self.pseudo_prob = 0.3              # probability that an iteration uses a pseudo view instead of a train view
+        self.pseudo_weight = 1.0            # loss weight of pseudo-view iterations
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):
