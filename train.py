@@ -57,6 +57,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         fur.attach(gaussians)
     elif opt.fur_orient_split or opt.fur_orient_clone:
         sys.exit("--fur_orient_split / --fur_orient_clone require --fur_densify")
+    tex = None
+    if opt.tex_loss:
+        from utils.tex_loss import TexLoss
+        tex = TexLoss(opt, dataset, scene.getTrainCameras())
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
         gaussians.restore(model_params, opt)
@@ -150,6 +154,14 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             Ll1depth = Ll1depth.item()
         else:
             Ll1depth = 0
+
+        if tex is not None:
+            Ltex = tex(iteration, image, gt_image, viewpoint_cam)
+            if Ltex is not None:
+                loss = loss + Ltex
+            if iteration % 1000 == 0 and tex.ema is not None:
+                tqdm.write(f"[tex] iter {iteration}: L_tex ema {tex.ema:.4f} (x lambda {tex.lam} = {tex.lam * tex.ema:.5f}), "
+                           f"L1 {Ll1.item():.5f}, 1-SSIM {1.0 - float(ssim_value):.5f}, gaussians {gaussians.get_xyz.shape[0]}")
 
         loss.backward()
 

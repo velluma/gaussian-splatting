@@ -108,6 +108,18 @@ class OptimizationParams(ParamGroup):
         self.fur_orient_aspect = 0.5        # across-strand / along-strand scale ratio (upper bound) of children
         self.fur_orient_min_conf = 0.5      # min direction confidence (1 - l0/l1)
         self.fur_orient_min_interior = 0.3  # min mean interior fur score
+        # fur-gs (D23). Off by default -> vanilla 3DGS loss
+        self.tex_loss = False               # add lambda * oriented spectral texture loss on fur-interior patches
+        self.tex_lambda = 0.1
+        self.tex_maps = ""                  # default: --fur_maps, else <source_path>/fur_maps
+        self.tex_patch = 64                 # patch size (px)
+        self.tex_npatch = 8                 # patches per iteration
+        self.tex_min_score = 0.2            # detector interior score that counts as fur
+        self.tex_min_cover = 0.9            # min fraction of fur pixels in a patch
+        self.tex_rbins = 8                  # radial frequency bins (0..0.5 cycles/px)
+        self.tex_abins = 8                  # orientation bins (0..pi)
+        self.tex_eps = 1e-6                 # log(power + eps)
+        self.tex_from_iter = 1000
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):
