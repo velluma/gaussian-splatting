@@ -28,12 +28,17 @@ class PseudoCam:
         self.full_proj_transform = torch.tensor(v["full_proj_transform"], dtype=torch.float32, device="cuda")
         self.camera_center = torch.inverse(self.world_view_transform)[3, :3]
         with Image.open(os.path.join(root, v["image"])) as im:
-            a = np.asarray(im.convert("RGB"), dtype=np.float32) / 255.0
-        self.original_image = torch.from_numpy(a).permute(2, 0, 1).contiguous()
+            a = np.asarray(im.convert("RGB"), dtype=np.uint8)
+        # uint8 로 보관하고 쓸 때 float 로 바꾼다 (75장 1080p: float32 1.7 GiB -> uint8 0.43 GiB, D27)
+        self._image_u8 = torch.from_numpy(a).permute(2, 0, 1).contiguous()
         self.alpha_mask = None
         self.depth_reliable = False
         self.invdepthmap = None
         self.depth_mask = None
+
+    @property
+    def original_image(self):
+        return self._image_u8.float() / 255.0
 
 
 class PseudoViews:
