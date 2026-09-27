@@ -142,7 +142,7 @@ def storePly(path, xyz, rgb):
     ply_data = PlyData([vertex_element])
     ply_data.write(path)
 
-def readColmapSceneInfo(path, images, depths, eval, train_test_exp, llffhold=8):
+def readColmapSceneInfo(path, images, depths, eval, train_test_exp, llffhold=8, split_file=""):
     try:
         cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.bin")
         cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.bin")
@@ -176,7 +176,16 @@ def readColmapSceneInfo(path, images, depths, eval, train_test_exp, llffhold=8):
             print(f"An unexpected error occurred when trying to open depth_params.json file: {e}")
             sys.exit(1)
 
-    if eval:
+    split = None
+    if split_file:
+        # fur-gs (D28): explicit train/test lists (sparse-view experiments). Cameras in neither list are not used.
+        with open(split_file, "r", encoding="utf-8") as f:
+            split = json.load(f)
+        stem = lambda n: os.path.splitext(os.path.basename(n))[0]
+        split_train, split_test = {stem(n) for n in split["train"]}, {stem(n) for n in split["test"]}
+        test_cam_names_list = [cam_extrinsics[c].name for c in cam_extrinsics if stem(cam_extrinsics[c].name) in split_test]
+        print(f"------------SPLIT FILE {split_file}: {len(split_train)} train / {len(split_test)} test-------------")
+    elif eval:
         if "360" in path:
             llffhold = 8
         if llffhold:
@@ -199,6 +208,9 @@ def readColmapSceneInfo(path, images, depths, eval, train_test_exp, llffhold=8):
 
     train_cam_infos = [c for c in cam_infos if train_test_exp or not c.is_test]
     test_cam_infos = [c for c in cam_infos if c.is_test]
+    if split is not None:
+        train_cam_infos = [c for c in cam_infos if stem(c.image_name) in split_train]
+        test_cam_infos = [c for c in cam_infos if stem(c.image_name) in split_test]
 
     nerf_normalization = getNerfppNorm(train_cam_infos)
 

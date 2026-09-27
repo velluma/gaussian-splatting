@@ -41,7 +41,13 @@ class Scene:
         self.test_cameras = {}
 
         if os.path.exists(os.path.join(args.source_path, "sparse")):
-            scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.depths, args.eval, args.train_test_exp)
+            split_file = getattr(args, "split_file", "")
+            scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.depths, args.eval, args.train_test_exp,
+                                                          split_file=split_file)
+            if split_file and not self.loaded_iter:
+                # fur-gs (D28): keep the split next to the model so evaluation tools pair renders with the same views
+                import shutil
+                shutil.copyfile(split_file, os.path.join(self.model_path, "split.json"))
         elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
             print("Found transforms_train.json file, assuming Blender data set!")
             scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.depths, args.eval)

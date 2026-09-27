@@ -54,6 +54,7 @@ class ModelParams(ParamGroup):
         self._resolution = -1
         self._white_background = False
         self.train_test_exp = False
+        self.split_file = ""                # fur-gs (D28): JSON {"train": [...], "test": [...]} image names; "" = 3DGS llffhold rule
         self.data_device = "cuda"
         self.eval = False
         super().__init__(parser, "Loading Parameters", sentinel)
