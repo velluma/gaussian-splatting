@@ -4,7 +4,7 @@
 #
 # For each training view, pick random PxP patches that lie inside the fur interior found by the RGB-only
 # detector (tools/fur_detect). For rendered and GT patches, compute the phase-free power spectrum
-# (gray, mean removed, Hann window), average it into (radius x orientation) bins and compare in log scale:
+# (per RGB channel, mean removed, Hann window), average it into (radius x orientation) bins and compare in log scale:
 #     L_tex = mean | log(P_render + f) - log(P_gt + f) |,  f = tex_floor * P_gt + eps
 # Dropping the phase makes the loss insensitive to where strands are; the orientation bins keep the
 # direction of the fur texture. The floor f bounds the penalty for missing power (blurry early renders),
@@ -77,8 +77,9 @@ class TexLoss:
               f"bins={nr}x{na} from_iter={self.from_iter}")
 
     def _binned_power(self, x):
-        """(N,3,P,P) -> (N, nbins) mean power per (radius, orientation) bin."""
-        g = 0.299 * x[:, 0] + 0.587 * x[:, 1] + 0.114 * x[:, 2]
+        """(N,3,P,P) -> (N*3, nbins) mean power per (radius, orientation) bin, per RGB channel
+        (per channel so that the loss cannot be met with colour-shifted lines; see D23 pilot)."""
+        g = x.reshape(-1, x.shape[-2], x.shape[-1])
         g = (g - g.mean((1, 2), keepdim=True)) * self.window
         pw = torch.fft.rfft2(g).abs() ** 2                                  # (N,P,P/2+1)
         out = torch.zeros(pw.shape[0], self.nbins + 1, device=x.device, dtype=pw.dtype)
