@@ -164,7 +164,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         if Ltex is None:
             loss.backward()
-        elif opt.tex_densify:
+        elif opt.tex_densify or iteration >= opt.densify_until_iter:
+            # after densification the view-space gradient is no longer used -> one backward pass (same result)
             loss = loss + Ltex
             loss.backward()
         else:
