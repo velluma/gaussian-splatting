@@ -5,9 +5,12 @@
 # For each training view, pick random PxP patches that lie inside the fur interior found by the RGB-only
 # detector (tools/fur_detect). For rendered and GT patches, compute the phase-free power spectrum
 # (gray, mean removed, Hann window), average it into (radius x orientation) bins and compare in log scale:
-#     L_tex = mean | log(P_render + eps) - log(P_gt + eps) |
+#     L_tex = mean | log(P_render + f) - log(P_gt + f) |,  f = tex_floor * P_gt + eps
 # Dropping the phase makes the loss insensitive to where strands are; the orientation bins keep the
-# direction of the fur texture. Total loss = original 3DGS loss + tex_lambda * L_tex.
+# direction of the fur texture. The floor f bounds the penalty for missing power (blurry early renders),
+# which otherwise dominates training. Total loss = original 3DGS loss + tex_lambda * L_tex.
+# By default the texture gradient is kept out of the densification statistics (train.py, --tex_densify off),
+# so densification follows the original pixel-loss rule and the texture term only shapes the Gaussians.
 #
 import math
 import os
@@ -32,6 +35,7 @@ class TexLoss:
         self.n = opt.tex_npatch
         self.from_iter = opt.tex_from_iter
         self.eps = opt.tex_eps
+        self.floor = opt.tex_floor
         map_dir = opt.tex_maps or opt.fur_maps or os.path.join(dataset.source_path, "fur_maps")
         if not os.path.isdir(map_dir):
             raise FileNotFoundError(f"[tex] fur map folder not found: {map_dir} (run tools/fur_detect/detect.py)")
@@ -94,7 +98,8 @@ class TexLoss:
         pr = self._binned_power(r)
         with torch.no_grad():
             pg = self._binned_power(g)
-        loss = (torch.log(pr + self.eps) - torch.log(pg + self.eps)).abs().mean()
+            floor = self.floor * pg + self.eps        # bounded penalty for missing power: log(1 + 1/floor)
+        loss = (torch.log(pr + floor) - torch.log(pg + floor)).abs().mean()
         v = float(loss.detach())
         self.ema = v if self.ema is None else 0.99 * self.ema + 0.01 * v
         return self.lam * loss

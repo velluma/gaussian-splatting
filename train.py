@@ -155,15 +155,25 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         else:
             Ll1depth = 0
 
+        Ltex = None
         if tex is not None:
             Ltex = tex(iteration, image, gt_image, viewpoint_cam)
-            if Ltex is not None:
-                loss = loss + Ltex
             if iteration % 1000 == 0 and tex.ema is not None:
                 tqdm.write(f"[tex] iter {iteration}: L_tex ema {tex.ema:.4f} (x lambda {tex.lam} = {tex.lam * tex.ema:.5f}), "
                            f"L1 {Ll1.item():.5f}, 1-SSIM {1.0 - float(ssim_value):.5f}, gaussians {gaussians.get_xyz.shape[0]}")
 
-        loss.backward()
+        if Ltex is None:
+            loss.backward()
+        elif opt.tex_densify:
+            loss = loss + Ltex
+            loss.backward()
+        else:
+            # densification statistics use the pixel-loss gradient only (as in vanilla 3DGS)
+            loss.backward(retain_graph=True)
+            vs_grad = viewspace_point_tensor.grad.clone()
+            Ltex.backward()
+            viewspace_point_tensor.grad.copy_(vs_grad)
+            loss = loss + Ltex.detach()
 
         iter_end.record()
 

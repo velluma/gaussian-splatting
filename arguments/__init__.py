@@ -118,8 +118,10 @@ class OptimizationParams(ParamGroup):
         self.tex_min_cover = 0.9            # min fraction of fur pixels in a patch
         self.tex_rbins = 8                  # radial frequency bins (0..0.5 cycles/px)
         self.tex_abins = 8                  # orientation bins (0..pi)
-        self.tex_eps = 1e-6                 # log(power + eps)
+        self.tex_eps = 1e-6                 # log(power + floor * gt_power + eps)
+        self.tex_floor = 0.1                # bounds the penalty for missing power to log(1 + 1/floor)
         self.tex_from_iter = 1000
+        self.tex_densify = False            # let the texture gradient also drive densification (off: pixel loss only)
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):
