@@ -62,7 +62,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         from utils.tex_loss import TexLoss
         tex = TexLoss(opt, dataset, scene.getTrainCameras())
     if checkpoint:
-        (model_params, first_iter) = torch.load(checkpoint)
+        (model_params, first_iter) = torch.load(checkpoint, weights_only=False)  # fur-gs: PyTorch>=2.6 default is weights_only=True; our own local checkpoint
         gaussians.restore(model_params, opt)
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
