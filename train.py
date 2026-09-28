@@ -65,6 +65,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     if opt.tex_loss:
         from utils.tex_loss import TexLoss
         tex = TexLoss(opt, dataset, scene.getTrainCameras())
+    erank = None
+    if opt.erank_lambda > 0:
+        from utils.erank_loss import ErankReg
+        erank = ErankReg(opt)
     pseudo = None
     if opt.pseudo_dir:
         from utils.pseudo_views import PseudoViews
@@ -168,6 +172,11 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             Ll1depth = Ll1depth.item()
         else:
             Ll1depth = 0
+
+        if erank is not None:
+            Lerank = erank(iteration, gaussians)
+            if Lerank is not None:
+                loss = loss + Lerank
 
         Ltex = None
         if tex is not None:

@@ -133,6 +133,11 @@ class OptimizationParams(ParamGroup):
         self.fur_len_mode = "clamp"         # clamp: cap axes every step | split: split long fur Gaussians at densification steps
         self.fur_len_from = 500             # first iteration of the clamp
         self.fur_len_every = 100            # recompute fur mask / caps every N iterations (and whenever the count changes)
+        # comparison method: effective rank regularization (Hyung et al. NeurIPS 2024, docs/erank.md). Off by default -> vanilla 3DGS
+        self.erank_lambda = 0.0             # > 0 enables; paper 0.01
+        self.erank_thin_lambda = 1.0        # weight of the mean smallest-scale term (official train.sh thin_lambda 1)
+        self.erank_from_iter = 7000         # paper: applied from iteration 7000
+        self.erank_eps = 1e-5               # paper 1e-5 (official code 1e-7)
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):
