@@ -57,6 +57,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         fur.attach(gaussians)
     elif opt.fur_orient_split or opt.fur_orient_clone:
         sys.exit("--fur_orient_split / --fur_orient_clone require --fur_densify")
+    fur_len = None
+    if opt.fur_len_prior:
+        from utils.fur_prior import FurLenPrior
+        fur_len = FurLenPrior(opt, dataset, scene.getTrainCameras())
     tex = None
     if opt.tex_loss:
         from utils.tex_loss import TexLoss
@@ -236,6 +240,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 else:
                     gaussians.optimizer.step()
                     gaussians.optimizer.zero_grad(set_to_none = True)
+                if fur_len is not None:
+                    fur_len.apply(gaussians, iteration)
+                    if iteration % 5000 == 0:
+                        print(f"\n[fur_len] ITER {iteration}: {fur_len.summary()}")
 
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
