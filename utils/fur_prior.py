@@ -5,8 +5,10 @@
 # Prior: the pixel length of the longest axis of fur Gaussians in a DENSE reconstruction of ANOTHER animal/scene
 # (tools/eval/gauss_shape.py stats -> gauss_shape.json, quantile --fur_len_q). Using the dense model of the same
 # scene would leak the test cameras.
-# During training every axis of a fur Gaussian is clamped to cap_px * z / fx after each optimizer step, where z is the
-# depth in the nearest train camera (center distance). Fur = mean fringe/interior score of the projected center over
+# --fur_len_mode clamp: every axis of a fur Gaussian is clamped to cap_px * z / fx after each optimizer step, where z is
+# the depth in the nearest train camera (center distance).
+# --fur_len_mode split: after each densification step (until densify_until_iter), fur Gaussians longer than the cap are
+# split in two along the longest axis (shorter AND more Gaussians; no clamp). Fur = mean fringe/interior score of the projected center over
 # all train views > FUR_TH (same projection as utils/fur_utils.py, occlusion ignored).
 #
 import json
@@ -27,6 +29,10 @@ class FurLenPrior:
         self.cap_px = float(pj["groups"]["fur"]["len_px"][f"p{opt.fur_len_q}"])
         self.from_iter = opt.fur_len_from
         self.every = opt.fur_len_every
+        self.mode = opt.fur_len_mode
+        if self.mode not in ("clamp", "split"):
+            raise ValueError(f"--fur_len_mode must be clamp|split, got {self.mode}")
+        self.n_split_total = 0
         map_dir = opt.fur_maps or os.path.join(dataset.source_path, "fur_maps")
         maps, P, C, fx, V = [], [], [], [], []
         for cam in train_cameras:
@@ -44,7 +50,7 @@ class FurLenPrior:
         self.fx = torch.tensor(fx, device="cuda")
         self.mask, self.log_cap, self.n = None, None, -1
         self.n_clamped = 0
-        print(f"[fur_len] prior {opt.fur_len_prior} p{opt.fur_len_q}: cap {self.cap_px:.2f} px, from iter {self.from_iter}, "
+        print(f"[fur_len] mode {self.mode}, prior {opt.fur_len_prior} p{opt.fur_len_q}: cap {self.cap_px:.2f} px, from iter {self.from_iter}, "
               f"{len(train_cameras)} train views")
 
     @torch.no_grad()
@@ -73,8 +79,39 @@ class FurLenPrior:
         self.n = n
 
     @torch.no_grad()
+    def split_long(self, gaussians):
+        """--fur_len_mode split: after each densification step, split fur Gaussians longer than the cap into two along the
+        longest axis. Children at +-(sqrt(3)/2) sigma with half the long-axis scale (the mixture keeps the second moment);
+        colour, opacity and rotation are copied, as in the vanilla 3DGS split."""
+        self.update(gaussians)
+        scale = gaussians.get_scaling
+        s_long, ax = scale.max(1)
+        sel = self.mask & (torch.log(s_long) > self.log_cap)
+        k = int(sel.sum())
+        self.n_split_total += k
+        if k == 0:
+            return
+        from utils.general_utils import build_rotation
+        R = build_rotation(gaussians._rotation[sel])                         # (k,3,3), columns = local axes
+        a = torch.gather(R, 2, ax[sel][:, None, None].expand(-1, 3, 1))[:, :, 0]
+        off = a * (0.8660254 * s_long[sel])[:, None]
+        xyz = gaussians.get_xyz[sel]
+        new_scale = scale[sel].clone()
+        new_scale[torch.arange(k, device="cuda"), ax[sel]] *= 0.5
+        new_scaling = gaussians.scaling_inverse_activation(new_scale).repeat(2, 1)
+        gaussians.tmp_radii = torch.zeros(gaussians.get_xyz.shape[0], device="cuda")
+        new_fur_stats = gaussians.fur_stats[sel].repeat(2, 1) if getattr(gaussians, "fur_stats", None) is not None else None
+        gaussians.densification_postfix(torch.cat([xyz + off, xyz - off]), gaussians._features_dc[sel].repeat(2, 1, 1),
+                                        gaussians._features_rest[sel].repeat(2, 1, 1), gaussians._opacity[sel].repeat(2, 1),
+                                        new_scaling, gaussians._rotation[sel].repeat(2, 1), gaussians.tmp_radii[sel].repeat(2),
+                                        new_fur_stats)
+        gaussians.prune_points(torch.cat([sel, torch.zeros(2 * k, device="cuda", dtype=torch.bool)]))
+        gaussians.tmp_radii = None
+        self.n = -1                                                            # count changed -> recompute next time
+
+    @torch.no_grad()
     def apply(self, gaussians, iteration):
-        if iteration < self.from_iter:
+        if self.mode != "clamp" or iteration < self.from_iter:
             return
         n = gaussians.get_xyz.shape[0]
         if n != self.n or iteration % self.every == 0:
@@ -86,5 +123,5 @@ class FurLenPrior:
         s[m] = capped
 
     def summary(self):
-        return (f"fur Gaussians {int(self.mask.sum()) if self.mask is not None else 0}, "
-                f"clamped at last step {self.n_clamped}, cap {self.cap_px:.2f} px")
+        return (f"mode {self.mode}, fur Gaussians {int(self.mask.sum()) if self.mask is not None else 0}, "
+                f"clamped at last step {self.n_clamped}, split so far {self.n_split_total}, cap {self.cap_px:.2f} px")

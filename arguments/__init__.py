@@ -130,6 +130,7 @@ class OptimizationParams(ParamGroup):
         # fur-gs (method_ideas 6, docs/gauss_prior.md). Off by default -> vanilla 3DGS
         self.fur_len_prior = ""             # gauss_shape.json of a dense model of ANOTHER animal/scene -> clamp fur Gaussian axes
         self.fur_len_q = 90                 # quantile of the prior fur len_px used as the cap
+        self.fur_len_mode = "clamp"         # clamp: cap axes every step | split: split long fur Gaussians at densification steps
         self.fur_len_from = 500             # first iteration of the clamp
         self.fur_len_every = 100            # recompute fur mask / caps every N iterations (and whenever the count changes)
         super().__init__(parser, "Optimization Parameters")
