@@ -73,6 +73,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     if opt.pseudo_dir:
         from utils.pseudo_views import PseudoViews
         pseudo = PseudoViews(opt)
+    wd = None
+    if opt.wd_loss:
+        from utils.wd_loss import WDLoss
+        wd = WDLoss(opt, dataset.model_path)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint, weights_only=False)  # fur-gs: PyTorch>=2.6 default is weights_only=True; our own local checkpoint
         gaussians.restore(model_params, opt)
@@ -158,6 +162,11 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
         if pcam is not None:
             loss = loss * pseudo.weight
+        if wd is not None:
+            loss = wd(iteration, image, gt_image, viewpoint_cam, loss)
+            if iteration % 1000 == 0 and wd.ema_wd is not None:
+                tqdm.write(f"[wd] iter {iteration}: d_WD ema {wd.ema_wd:.4f}, beta {wd.beta}, gamma {wd.gamma}, "
+                           f"L1 {Ll1.item():.5f}, 1-SSIM {1.0 - float(ssim_value):.5f}, gaussians {gaussians.get_xyz.shape[0]}")
 
         # Depth regularization
         Ll1depth_pure = 0.0

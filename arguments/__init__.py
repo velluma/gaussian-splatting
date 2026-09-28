@@ -138,6 +138,16 @@ class OptimizationParams(ParamGroup):
         self.erank_thin_lambda = 1.0        # weight of the mean smallest-scale term (official train.sh thin_lambda 1)
         self.erank_from_iter = 7000         # paper: applied from iteration 7000
         self.erank_eps = 1e-5               # paper 1e-5 (official code 1e-7)
+        # WD-R perceptual loss (Ozyilkan et al. ECCV 2026, docs/wdr.md). Off by default -> vanilla 3DGS
+        self.wd_loss = False                # loss = gamma * (d_WD + beta * L_orig) from --wd_from_iter
+        self.wd_sigma = 4.0                 # pooling width in image px (paper: constant 4)
+        self.wd_from_iter = 3000            # warm-up with the original loss (paper: 3k)
+        self.wd_beta = -1.0                 # < 0: auto from gradient norms (paper: 1/0.09 with its own WD scale)
+        self.wd_gamma = -1.0                # <= 0: auto (keep the image-space gradient norm of the original loss)
+        self.wd_grad_ratio = 1.6            # auto beta target ||grad d_WD|| / ||grad beta L_orig|| (paper Fig. 13 mean ~1.6)
+        self.wd_calib_iters = 50            # iterations after warm-up used to measure gradient norms (original loss meanwhile)
+        self.wd_margin = 32                 # px added around the object box of the training photo
+        self.wd_max_px = 1500000            # larger boxes use a random window of this many pixels
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):
